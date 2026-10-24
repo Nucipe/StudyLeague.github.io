@@ -707,9 +707,11 @@
     }
 
     /* 1. Timer Logic */
+/* 1. Timer Logic (A prueba de bloqueo de pantalla) */
     let timer = null;
     let targetMinutes = 25;
-    let timeLeft = 25 * 60;
+    let targetEndTime = null; // Guarda la hora exacta en la que debe terminar
+    let remainingSeconds = 25 * 60;
     let isRunning = false;
 
     function setCustomDuration() {
@@ -718,7 +720,7 @@
       if (isNaN(val) || val < 1) val = 1;
       targetMinutes = val;
       if (!isRunning) {
-        timeLeft = targetMinutes * 60;
+        remainingSeconds = targetMinutes * 60;
         updateTimerDisplay();
       }
     }
@@ -726,17 +728,31 @@
     function toggleTimer() {
       const btn = document.getElementById('startBtn');
       if (isRunning) {
+        // Pausar
         clearInterval(timer);
         isRunning = false;
+        // Guardamos el tiempo que le quedaba
+        remainingSeconds = Math.max(0, Math.round((targetEndTime - Date.now()) / 1000));
         btn.textContent = 'Reanudar';
       } else {
+        // Iniciar o Reanudar
         isRunning = true;
         btn.textContent = 'Pausar';
+        
+        // Calculamos la hora exactísima de finalización sumando los segundos restantes
+        targetEndTime = Date.now() + (remainingSeconds * 1000);
+
         timer = setInterval(() => {
-          timeLeft--;
-          updateTimerDisplay();
-          if (timeLeft <= 0) {
+          const now = Date.now();
+          remainingSeconds = Math.round((targetEndTime - now) / 1000);
+
+          if (remainingSeconds <= 0) {
+            clearInterval(timer);
+            remainingSeconds = 0;
+            updateTimerDisplay();
             completeSession();
+          } else {
+            updateTimerDisplay();
           }
         }, 1000);
       }
@@ -745,14 +761,14 @@
     function resetTimer() {
       clearInterval(timer);
       isRunning = false;
-      timeLeft = targetMinutes * 60;
+      remainingSeconds = targetMinutes * 60;
       updateTimerDisplay();
       document.getElementById('startBtn').textContent = 'Iniciar Pomodoro';
     }
 
     function updateTimerDisplay() {
-      const mins = Math.floor(timeLeft / 60);
-      const secs = timeLeft % 60;
+      const mins = Math.floor(remainingSeconds / 60);
+      const secs = remainingSeconds % 60;
       document.getElementById('timerDisplay').textContent = 
         `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
@@ -771,6 +787,24 @@
       saveState();
       alert(`¡Sesión completada! 🎉 Has ganado ${targetMinutes} monedas.`);
     }
+
+    // Opcional: Control por si el usuario cambia de pestaña y vuelve
+    document.addEventListener("visibilitychange", () => {
+      if (!isRunning) return;
+      if (document.visibilityState === "visible") {
+        // Al volver a la pestaña, recalculamos el tiempo real restante de inmediato
+        const now = Date.now();
+        remainingSeconds = Math.round((targetEndTime - now) / 1000);
+        if (remainingSeconds <= 0) {
+          clearInterval(timer);
+          remainingSeconds = 0;
+          updateTimerDisplay();
+          completeSession();
+        } else {
+          updateTimerDisplay();
+        }
+      }
+    });
 
     /* Subject Management */
     function addSubject() {
