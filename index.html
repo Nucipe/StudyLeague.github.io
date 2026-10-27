@@ -707,25 +707,19 @@
     }
 
     /* 1. Timer Logic */
-/* 1. Timer Logic (Pomodoro + Tiempo Extra Continuo) */
+/* 1. Timer Logic (Flujo continuo ininterrumpido) */
     let timer = null;
     let targetMinutes = 25;
-    let targetEndTime = null; 
-    let remainingSeconds = 25 * 60;
-    
-    // Nuevas variables para el tiempo extra
+    let startTime = null;
     let isRunning = false;
-    let isExtraTime = false;
-    let extraSeconds = 0;
 
     function setCustomDuration() {
       const input = document.getElementById('customMinutesInput');
       let val = parseInt(input.value);
       if (isNaN(val) || val < 1) val = 1;
       targetMinutes = val;
-      if (!isRunning && !isExtraTime) {
-        remainingSeconds = targetMinutes * 60;
-        updateTimerDisplay();
+      if (!isRunning) {
+        updateTimerDisplay(targetMinutes * 60);
       }
     }
 
@@ -733,143 +727,94 @@
       const startBtn = document.getElementById('startBtn');
       
       if (isRunning) {
-        if (isExtraTime) {
-          // Si estamos en tiempo extra y le damos a pausar/parar, finalizamos la sesión completa
-          stopExtraTimeSession();
-        } else {
-          // Pausar Pomodoro normal
-          clearInterval(timer);
-          isRunning = false;
-          remainingSeconds = Math.max(0, Math.round((targetEndTime - Date.now()) / 1000));
-          startBtn.textContent = 'Reanudar';
-        }
+        // Al pulsar estando en marcha: finaliza la sesión y calcula todo de golpe
+        stopAndSaveSession();
       } else {
-        // Iniciar o Reanudar
+        // Iniciar sesión limpia
         isRunning = true;
+        startBtn.textContent = 'Terminar y Guardar';
         
-        if (isExtraTime) {
-          startBtn.textContent = 'Terminar y Guardar';
-          // Continuar tiempo extra sumando segundos
-          timer = setInterval(() => {
-            extraSeconds++;
-            updateTimerDisplay();
-          }, 1000);
-        } else {
-          startBtn.textContent = 'Pausar';
-          targetEndTime = Date.now() + (remainingSeconds * 1000);
+        // Guardamos el momento exacto de inicio
+        startTime = Date.now();
 
-          timer = setInterval(() => {
-            const now = Date.now();
-            remainingSeconds = Math.round((targetEndTime - now) / 1000);
+        timer = setInterval(() => {
+          updateTimerProgress();
+        }, 1000);
+      }
+    }
 
-            if (remainingSeconds <= 0) {
-              // ¡Pomodoro cumplido! Transición automática a tiempo extra
-              clearInterval(timer);
-              remainingSeconds = 0;
-              updateTimerDisplay();
-              
-              // Guardamos la recompensa base del Pomodoro
-              triggerPomodoroSuccess();
-              
-              // Empezamos a contar tiempo extra
-              isExtraTime = true;
-              extraSeconds = 0;
-              startBtn.textContent = 'Terminar y Guardar';
-              
-              timer = setInterval(() => {
-                extraSeconds++;
-                updateTimerDisplay();
-              }, 1000);
+    function updateTimerProgress() {
+      if (!startTime) return;
 
-            } else {
-              updateTimerDisplay();
-            }
-          }, 1000);
-        }
+      const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+      const targetSeconds = targetMinutes * 60;
+      const remainingSeconds = targetSeconds - elapsedSeconds;
+
+      if (remainingSeconds > 0) {
+        // Cuenta atrás del Pomodoro base
+        updateTimerDisplay(remainingSeconds, false);
+      } else {
+        // Tiempo cumplido: pasa a tiempo extra sumando el total transcurrido
+        updateTimerDisplay(elapsedSeconds, true);
+      }
+    }
+
+    function updateTimerDisplay(seconds, isExtra = false) {
+      const display = document.getElementById('timerDisplay');
+      if (isExtra) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        display.textContent = `+${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        display.style.color = 'var(--accent-pink)'; // Cambio sutil de color opcional para indicar tiempo extra
+      } else {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        display.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        display.style.color = 'var(--text-main)';
       }
     }
 
     function resetTimer() {
       clearInterval(timer);
       isRunning = false;
-      isExtraTime = false;
-      extraSeconds = 0;
-      remainingSeconds = targetMinutes * 60;
-      updateTimerDisplay();
+      startTime = null;
       document.getElementById('startBtn').textContent = 'Iniciar Pomodoro';
+      updateTimerDisplay(targetMinutes * 60, false);
     }
 
-    function updateTimerDisplay() {
-      if (isExtraTime) {
-        // Mostramos el tiempo extra en formato +MM:SS o sumando al total
-        const totalSecs = (targetMinutes * 60) + extraSeconds;
-        const mins = Math.floor(totalSecs / 60);
-        const secs = totalSecs % 60;
-        document.getElementById('timerDisplay').textContent = 
-          `+${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-      } else {
-        const mins = Math.floor(remainingSeconds / 60);
-        const secs = remainingSeconds % 60;
-        document.getElementById('timerDisplay').textContent = 
-          `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-      }
-    }
-
-    function triggerPomodoroSuccess() {
-      state.coins += targetMinutes;
-      state.sessions.push({
-        id: Date.now(),
-        subjectId: document.getElementById('subjectSelect').value,
-        minutes: targetMinutes,
-        date: new Date().toISOString()
-      });
-      saveState();
-      alert(`¡Pomodoro completado! 🎉 Has ganado ${targetMinutes} monedas. El tiempo sigue contando por si quieres seguir.`);
-    }
-
-    function stopExtraTimeSession() {
+    function stopAndSaveSession() {
       clearInterval(timer);
       
-      const extraMins = Math.floor(extraSeconds / 60);
-      if (extraMins > 0) {
-        // Guardamos también los minutos extra como una sesión adicional o sumada
-        state.coins += extraMins;
+      if (!startTime) {
+        resetTimer();
+        return;
+      }
+
+      // Calculamos los minutos reales totales que se han estudiado
+      const totalElapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+      const totalStudiedMinutes = Math.floor(totalElapsedSeconds / 60);
+
+      if (totalStudiedMinutes > 0) {
+        state.coins += totalStudiedMinutes;
         state.sessions.push({
           id: Date.now(),
           subjectId: document.getElementById('subjectSelect').value,
-          minutes: extraMins,
+          minutes: totalStudiedMinutes,
           date: new Date().toISOString()
         });
         saveState();
-        alert(`¡Sesión extra finalizada! ⏱️ Has sumado ${extraMins} minutos extra y ${extraMins} monedas más.`);
+        alert(`¡Sesión finalizada! 🎉 Has estudiado un total de ${totalStudiedMinutes} minutos y has ganado ${totalStudiedMinutes} monedas.`);
       } else {
-        alert("Sesión extra finalizada.");
+        alert("Sesión demasiado corta (menos de 1 minuto) para registrar.");
       }
 
       resetTimer();
     }
 
-    // Control por si el usuario cambia de pestaña con la pantalla apagada
+    // Si vuelves a encender la pantalla o abrir la pestaña, se actualiza el número al instante
     document.addEventListener("visibilitychange", () => {
-      if (!isRunning || isExtraTime) return;
-      if (document.visibilityState === "visible") {
-        const now = Date.now();
-        remainingSeconds = Math.round((targetEndTime - now) / 1000);
-        if (remainingSeconds <= 0) {
-          clearInterval(timer);
-          remainingSeconds = 0;
-          updateTimerDisplay();
-          triggerPomodoroSuccess();
-          isExtraTime = true;
-          extraSeconds = 0;
-          document.getElementById('startBtn').textContent = 'Terminar y Guardar';
-          timer = setInterval(() => {
-            extraSeconds++;
-            updateTimerDisplay();
-          }, 1000);
-        } else {
-          updateTimerDisplay();
-        }
+      if (isRunning && document.visibilityState === "visible") {
+        updateTimerProgress();
       }
     });
     
